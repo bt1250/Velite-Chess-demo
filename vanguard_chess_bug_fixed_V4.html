@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vanguard Chess - Smart AI Edition</title>
+    <style>
+        :root {
+            --gold: #FFD700;
+            --board-light: #f0d9b5;
+            --board-dark: #b58863;
+            --highlight: rgba(20, 85, 30, 0.5);
+            --danger: rgba(200, 50, 50, 0.6);
+            --action: #8e44ad;
+            --disassemble: #d35400;
+        }
+
+        body {
+            display: flex; flex-direction: column; align-items: center;
+            background-color: #121212; color: #eee; font-family: 'Segoe UI', sans-serif;
+            margin: 0; padding: 10px;
+        }
+
+        #menu {
+            background: #222; padding: 25px; border-radius: 10px; text-align: center;
+            border: 2px solid var(--gold); box-shadow: 0 8px 25px rgba(0,0,0,0.7);
+            width: 500px; margin-top: 10px; position: relative;
+            max-height: 90vh; overflow-y: auto;
+        }
+        
+        h1 { color: var(--gold); text-transform: uppercase; letter-spacing: 2px; margin: 0 0 5px 0; }
+
+        .btn-how-to {
+            background: #1a365d; color: white; font-weight: bold; font-size: 16px; 
+            padding: 12px; margin-bottom: 15px; border-radius: 6px; border: 1px solid #2a4365;
+            width: 100%; cursor: pointer; text-transform: uppercase; letter-spacing: 1px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4); transition: 0.2s;
+        }
+
+        button {
+            padding: 10px; margin: 5px 0; font-size: 14px; cursor: pointer;
+            background: #444; color: white; border: 1px solid #666;
+            border-radius: 6px; transition: 0.2s; font-weight: bold; width: 100%;
+        }
+        button:hover:not(:disabled) { background: #555; border-color: var(--gold); }
+        .btn-row { display: flex; gap: 10px; margin-top: 10px; }
+        
+        .toggle-group { margin: 10px 0; text-align: left; background: #333; padding: 10px; border-radius: 6px; border: 1px solid #444; }
+        .toggle-group label { display: block; margin-bottom: 5px; font-size: 13px; font-weight: bold; color: var(--gold); cursor: pointer; }
+        select { width: 100%; padding: 7px; font-size: 14px; background: #111; color: white; border: 1px solid #555; border-radius: 4px; }
+
+        #how-to-play {
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(34, 34, 34, 0.98); border-radius: 10px; padding: 25px; box-sizing: border-box;
+            text-align: left; z-index: 10; overflow-y: auto; border: 2px solid var(--gold);
+        }
+        #how-to-play h2 { color: var(--gold); margin-top: 0; text-align: center; border-bottom: 1px solid #555; padding-bottom: 10px;}
+        #how-to-play h3 { color: #55ff55; margin-bottom: 5px; font-size: 16px; }
+        #how-to-play ul { padding-left: 20px; font-size: 14px; line-height: 1.5; color: #ddd; margin-top: 0; }
+        
+        #game-container { display: none; flex-direction: column; align-items: center; width: 100%; max-width: 650px; margin-top: 10px; }
+        #status { font-size: 22px; font-weight: bold; color: var(--gold); margin-bottom: 5px; text-align: center; }
+        #info { font-size: 14px; color: #ccc; margin-bottom: 2px; text-align: center; font-family: monospace; background: #222; padding: 5px 15px; border-radius: 5px; border: 1px solid #444; width: 100%; box-sizing: border-box;}
+
+        #spectate-controls { display: none; gap: 10px; margin-bottom: 15px; width: 100%; justify-content: center; }
+        
+        #board { display: grid; border: 4px solid #222; box-shadow: 0 10px 30px rgba(0,0,0,0.8); background: #111; position: relative;}
+        .square { display: flex; justify-content: center; align-items: center; cursor: pointer; user-select: none; position: relative; box-sizing: border-box; }
+        .light { background-color: var(--board-light); }
+        .dark { background-color: var(--board-dark); }
+        
+        .selected { background-color: var(--highlight) !important; }
+        .hint::after { content: ''; width: 16px; height: 16px; background-color: rgba(0,0,0,0.5); border-radius: 50%; position: absolute; }
+        .capture-hint { background-color: var(--danger) !important; }
+
+        .w-piece { color: #fff; text-shadow: 1px 1px 3px #000; z-index: 2; position: relative; font-size: inherit; transition: opacity 0.2s;}
+        .b-piece { color: #000; z-index: 2; position: relative; font-size: inherit; transition: opacity 0.2s;}
+
+        #action-bar { margin-bottom: 5px; font-size: 14px; font-weight: bold; color: #55ff55; height: 20px; }
+        
+        #action-panel { width: 100%; margin-top: 15px; display: flex; justify-content: center; gap: 10px; }
+        .exchange-btn {
+            background: #111; color: white; border: 2px solid #555; padding: 12px;
+            border-radius: 6px; font-size: 16px; font-weight: bold; cursor: not-allowed;
+            transition: 0.3s; box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+        .exchange-btn.active { background: var(--action); border-color: #fff; cursor: pointer; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { box-shadow: 0 0 5px currentColor; } 50% { box-shadow: 0 0 15px currentColor; } 100% { box-shadow: 0 0 5px currentColor; } }
+    </style>
+</head>
+<body>
+
+    <div id="menu">
+        <h1>Vanguard Chess</h1>
+        <button class="btn-how-to" onclick="toggleHowToPlay()">📖 Vanguard Rules</button>
+
+        <div id="how-to-play">
+            <h2>How to Play</h2>
+            <h3>The Setups</h3>
+            <ul>
+                <li><strong>Standard:</strong> Solid wall of Checkers on Row 3, Pawns on Row 2, Chess on Row 1.</li>
+                <li><strong>True Spacing:</strong> Solves gridlock by placing Checkers only on alternating squares (dark or light).</li>
+                <li><strong>Inverted Vanguard:</strong> A highly aggressive variant where Checkers hold the back row, the King and Majors are on the 2nd row, and Pawns are on the 3rd row!</li>
+            </ul>
+            <h3>Checker Mechanics</h3>
+            <ul>
+                <li><strong>Movement:</strong> Checkers (⬤) move 1 square diagonally forward into an empty space.</li>
+                <li><strong>Jumping (Capturing):</strong> Checkers capture by jumping over an adjacent enemy piece into an empty square diagonally behind it.</li>
+                <li><strong>Multi-Jumps:</strong> You can chain multiple jumps in a single turn! Click the next jump target, or click "End Jump" to stop early. Jumping is optional.</li>
+                <li><strong>Checker Kings:</strong> Reaching the furthest rank promotes a Checker to a Checker King (❂), which can move and jump diagonally backward as well.</li>
+            </ul>
+            <h3>Chess Mechanics</h3>
+            <ul>
+                <li>Chess pieces move and capture completely normally via displacement.</li>
+                <li>Pawns move 1 square forward, and capture 1 square diagonally forward. (No double-move on first turn).</li>
+                <li><strong>Victory:</strong> Capture the enemy Chess King to win! (Watch out: Multi-jumps make Kings uniquely vulnerable!)</li>
+            </ul>
+            <button onclick="toggleHowToPlay()" style="background: var(--gold); color: black;">Close Rules</button>
+        </div>
+
+        <div class="toggle-group">
+            <label>Map Scale & Variant:</label>
+            <select id="board-size">
+                <option value="8_true_dark" selected>8x8 True Vanguard (Checkers on Dark Squares)</option>
+                <option value="8_true_light">8x8 True Vanguard (Checkers on Light Squares)</option>
+                <option value="8_inverted_dark">8x8 Inverted Vanguard (Checkers Backrow - Dark)</option>
+                <option value="8_inverted_light">8x8 Inverted Vanguard (Checkers Backrow - Light)</option>
+                <option value="8_standard">8x8 Standard Vanguard (Dense Wall)</option>
+                <option value="9">9x9 Dual-Queen Vanguard</option>
+                <option value="10">10x10 Imperial Vanguard</option>
+                <option value="10_trench">10x10 Trench Vanguard (Flanks Empty)</option>
+            </select>
+        </div>
+
+        <div class="toggle-group">
+            <label>Bot Difficulty:</label>
+            <select id="bot-depth">
+                <option value="1">Level 1 (Fast / Greedy)</option>
+                <option value="2">Level 2 (Tactical)</option>
+                <option value="3" selected>Level 3 (Beam Search)</option>
+                <option value="4">Level 4 (Alpha-Beta Deep)</option>
+            </select>
+        </div>
+
+        <button onclick="startGame('pvp')" style="background: #2a5a2a;">Local 2-Player</button>
+        <div class="btn-row">
+            <button onclick="startGame('bot_w')">Play vs Bot (White)</button>
+            <button onclick="startGame('bot_b')">Play vs Bot (Black)</button>
+        </div>
+        <button onclick="startGame('spectate')" style="background: #5a3a2a; margin-top: 10px;">Spectate (Bot vs Bot)</button>
+    </div>
+
+    <div id="game-container">
+        <div id="status">White's Turn</div>
+        <div id="action-bar">Turn 1</div>
+        <div id="info"></div>
+
+        <div id="spectate-controls">
+            <button id="auto-btn" onclick="toggleAuto()" style="background: #28a745;">▶ Start Auto-Play</button>
+        </div>
+
+        <div id="board"></div>
+
+        <div id="action-panel">
+            <button id="cancel-btn" class="exchange-btn active" onclick="executeAction({type: 'skip_extra_move'})" style="display:none; background:#d35400;">End Jump (Stop)</button>
+        </div>
+
+        <button onclick="location.reload()" style="margin-top:20px; max-width: 200px;">Surrender / Menu</button>
+    </div>
+
+    <script>
+        const PIECES = { 'n':'♞', 'b':'♝', 'q':'♛', 'k':'♚', 'p':'♟', 'r':'♜', 'c':'⬤', 'ck':'❂' };
+        
+        // UPGRADED PIECE VALUES (Scaled x10 for more precise positional math)
+        const VALS = { 'p':100, 'c':150, 'ck':350, 'n':300, 'b':320, 'r':500, 'q':900, 'k':90000 };
+        
+        let SIZE = 8;
+        let gameState, turn, selected, gameOver;
+        let gameMode, playerColor, botDepth;
+        let playerTurns = { 'w': 1, 'b': 0 };
+        let isAutoPlaying = false;
+        let autoTimer = null;
+
+        function toggleHowToPlay() {
+            let el = document.getElementById('how-to-play');
+            el.style.display = el.style.display === 'block' ? 'none' : 'block';
+        }
+
+        function toggleAuto() {
+            isAutoPlaying = !isAutoPlaying;
+            document.getElementById('auto-btn').innerText = isAutoPlaying ? "⏸ Pause Auto-Play" : "▶ Start Auto-Play";
+            if (isAutoPlaying && !gameOver) runBot(turn);
+            else clearTimeout(autoTimer);
+        }
+
+        function startGame(mode) {
+            gameMode = mode;
+            botDepth = parseInt(document.getElementById('bot-depth').value);
+            
+            let modeStr = document.getElementById('board-size').value;
+            SIZE = parseInt(modeStr);
+
+            playerColor = mode === 'bot_b' ? 'b' : 'w';
+            turn = 'w'; gameOver = false; selected = null;
+            isAutoPlaying = false; clearTimeout(autoTimer);
+            playerTurns = { 'w': 1, 'b': 0 };
+
+            let bEl = document.getElementById('board');
+            bEl.style.gridTemplateColumns = `repeat(${SIZE}, ${SIZE >= 10 ? 45 : 60}px)`;
+            bEl.style.gridTemplateRows = `repeat(${SIZE}, ${SIZE >= 10 ? 45 : 60}px)`;
+
+            gameState = initBoard(modeStr);
+            document.getElementById('menu').style.display = 'none';
+            document.getElementById('game-container').style.display = 'flex';
+            document.getElementById('spectate-controls').style.display = mode === 'spectate' ? 'flex' : 'none';
+            
+            updateUI();
+            if (gameMode === 'bot_b') setTimeout(() => runBot('w'), 500);
+        }
+
+        function initBoard(modeStr) {
+            let b = Array(SIZE).fill(null).map(() => Array(SIZE).fill(null));
+            
+            let isDark = (r, c) => (r + c) % 2 !== 0;
+            let isLight = (r, c) => (r + c) % 2 === 0;
+
+            if (modeStr.startsWith('8')) {
+                let backRank = ['r','n','b','q','k','b','n','r'];
+                
+                if (modeStr === '8_standard') {
+                    for(let c=0; c<8; c++) {
+                        b[7][c] = { type: backRank[c], color: 'w' };
+                        b[6][c] = { type: 'p', color: 'w' };
+                        b[5][c] = { type: 'c', color: 'w' };
+                        b[0][c] = { type: backRank[c], color: 'b' };
+                        b[1][c] = { type: 'p', color: 'b' };
+                        b[2][c] = { type: 'c', color: 'b' };
+                    }
+                } else if (modeStr === '8_true_dark' || modeStr === '8_true_light') {
+                    let checkerCond = modeStr === '8_true_dark' ? isDark : isLight;
+                    for(let c=0; c<8; c++) {
+                        b[7][c] = { type: backRank[c], color: 'w' };
+                        b[6][c] = { type: 'p', color: 'w' };
+                        if (checkerCond(5, c)) b[5][c] = { type: 'c', color: 'w' };
+                        
+                        b[0][c] = { type: backRank[c], color: 'b' };
+                        b[1][c] = { type: 'p', color: 'b' };
+                        if (checkerCond(2, c)) b[2][c] = { type: 'c', color: 'b' };
+                    }
+                } else if (modeStr === '8_inverted_dark' || modeStr === '8_inverted_light') {
+                    let checkerCond = modeStr === '8_inverted_dark' ? isDark : isLight;
+                    for(let c=0; c<8; c++) {
+                        if (checkerCond(7, c)) b[7][c] = { type: 'c', color: 'w' };
+                        b[6][c] = { type: backRank[c], color: 'w' };
+                        b[5][c] = { type: 'p', color: 'w' };
+
+                        if (checkerCond(0, c)) b[0][c] = { type: 'c', color: 'b' };
+                        b[1][c] = { type: backRank[c], color: 'b' };
+                        b[2][c] = { type: 'p', color: 'b' };
+                    }
+                }
+            } else if (modeStr === '9') {
+                let backRank = ['r','n','b','q','k','q','b','n','r'];
+                for(let c=0; c<9; c++) {
+                    b[8][c] = { type: backRank[c], color: 'w' };
+                    b[7][c] = { type: 'p', color: 'w' };
+                    b[6][c] = { type: 'c', color: 'w' };
+                    b[0][c] = { type: backRank[c], color: 'b' };
+                    b[1][c] = { type: 'p', color: 'b' };
+                    b[2][c] = { type: 'c', color: 'b' };
+                }
+            } else if (modeStr === '10') {
+                let backRank = ['r','n','b','q','k','ck','q','b','n','r'];
+                for(let c=0; c<10; c++) {
+                    b[9][c] = { type: backRank[c], color: 'w' };
+                    b[8][c] = { type: 'p', color: 'w' };
+                    b[7][c] = { type: 'c', color: 'w' };
+                    b[0][c] = { type: backRank[c], color: 'b' };
+                    b[1][c] = { type: 'p', color: 'b' };
+                    b[2][c] = { type: 'c', color: 'b' };
+                }
+            } else if (modeStr === '10_trench') {
+                let backRank = ['r','n','b','q','k','b','n','r'];
+                for(let c=0; c<8; c++) {
+                    b[9][c+1] = { type: backRank[c], color: 'w' };
+                    b[8][c+1] = { type: 'p', color: 'w' };
+                    b[7][c+1] = { type: 'c', color: 'w' };
+                    b[0][c+1] = { type: backRank[c], color: 'b' };
+                    b[1][c+1] = { type: 'p', color: 'b' };
+                    b[2][c+1] = { type: 'c', color: 'b' };
+                }
+            }
+            return { board: b, extraMove: null };
+        }
+
+        function cloneState(st) {
+            let newBoard = st.board.map(row => row.map(p => p ? { ...p } : null));
+            return { board: newBoard, extraMove: st.extraMove ? { ...st.extraMove } : null };
+        }
+
+        function getCheckerMoves(st, r, c) {
+            let b = st.board, p = b[r][c], moves = [];
+            let dirs = p.type === 'ck' ? [[-1,-1],[-1,1],[1,-1],[1,1]] : (p.color === 'w' ? [[-1,-1],[-1,1]] : [[1,-1],[1,1]]);
+            
+            for(let [dr, dc] of dirs) {
+                let nr = r + dr, nc = c + dc;
+                if (nr >= 0 && nr < SIZE && nc >= 0 && nc < SIZE) {
+                    if (!b[nr][nc]) moves.push({ type: 'move', fr: r, fc: c, tr: nr, tc: nc });
+                    
+                    let jr = r + dr*2, jc = c + dc*2;
+                    if (jr >= 0 && jr < SIZE && jc >= 0 && jc < SIZE) {
+                        let enemy = b[nr][nc];
+                        if (enemy && enemy.color !== p.color && !b[jr][jc]) {
+                            moves.push({ type: 'jump', fr: r, fc: c, tr: jr, tc: jc, capR: nr, capC: nc });
+                        }
+                    }
+                }
+            }
+            return moves;
+        }
+
+        function getCheckerJumps(st, r, c) {
+            let b = st.board, p = b[r][c], moves = [];
+            if (!p) return moves;
+            let dirs = p.type === 'ck' ? [[-1,-1],[-1,1],[1,-1],[1,1]] : (p.color === 'w' ? [[-1,-1],[-1,1]] : [[1,-1],[1,1]]);
+            
+            for(let [dr, dc] of dirs) {
+                let nr = r + dr, nc = c + dc;
+                let jr = r + dr*2, jc = c + dc*2;
+                if (jr >= 0 && jr < SIZE && jc >= 0 && jc < SIZE) {
+                    let enemy = b[nr][nc];
+                    if (enemy && enemy.color !== p.color && !b[jr][jc]) {
+                        moves.push({ type: 'jump', fr: r, fc: c, tr: jr, tc: jc, capR: nr, capC: nc });
+                    }
+                }
+            }
+            return moves;
+        }
+
+        function getChessMoves(st, r, c) {
+            let b = st.board, p = b[r][c], moves = [];
+            
+            let addMove = (nr, nc) => {
+                if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE) return false;
+                let t = b[nr][nc];
+                if (t && t.color === p.color) return false;
+                moves.push({ type: 'move', fr: r, fc: c, tr: nr, tc: nc });
+                return t === null; 
+            };
+
+            if (p.type === 'p') {
+                let dir = p.color === 'w' ? -1 : 1;
+                if (r + dir >= 0 && r + dir < SIZE && !b[r+dir][c]) {
+                    moves.push({ type: 'move', fr: r, fc: c, tr: r+dir, tc: c });
+                }
+                for(let dc of [-1, 1]) {
+                    let nr = r + dir, nc = c + dc;
+                    if (nr >= 0 && nr < SIZE && nc >= 0 && nc < SIZE) {
+                        let t = b[nr][nc];
+                        if (t && t.color !== p.color) moves.push({ type: 'move', fr: r, fc: c, tr: nr, tc: nc });
+                    }
+                }
+            }
+            
+            let orthos = [[-1,0],[1,0],[0,-1],[0,1]];
+            let diags = [[-1,-1],[-1,1],[1,-1],[1,1]];
+            let knights = [[-2,-1],[-2,1],[2,-1],[2,1],[-1,-2],[-1,2],[1,-2],[1,2]];
+            
+            if (p.type === 'n') { for(let [dr, dc] of knights) addMove(r+dr, c+dc); }
+            if (p.type === 'b' || p.type === 'q') {
+                for(let [dr, dc] of diags) { for(let i=1; i<SIZE; i++) if (!addMove(r+dr*i, c+dc*i)) break; }
+            }
+            if (p.type === 'r' || p.type === 'q') {
+                for(let [dr, dc] of orthos) { for(let i=1; i<SIZE; i++) if (!addMove(r+dr*i, c+dc*i)) break; }
+            }
+            if (p.type === 'k') {
+                for(let [dr, dc] of [...orthos, ...diags]) addMove(r+dr, c+dc);
+            }
+            return moves;
+        }
+
+        function isAttacked(st, tr, tc, attCol) {
+            let b = st.board;
+            let orthos = [[-1,0],[1,0],[0,-1],[0,1]];
+            let diags = [[-1,-1],[-1,1],[1,-1],[1,1]];
+            let knights = [[-2,-1],[-2,1],[2,-1],[2,1],[-1,-2],[-1,2],[1,-2],[1,2]];
+
+            for(let [dr, dc] of orthos) {
+                for(let i=1; i<SIZE; i++) {
+                    let nr = tr + dr*i, nc = tc + dc*i;
+                    if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE) break;
+                    let p = b[nr][nc];
+                    if (p) { if (p.color === attCol && (p.type === 'r' || p.type === 'q')) return true; break; }
+                }
+            }
+            for(let [dr, dc] of diags) {
+                for(let i=1; i<SIZE; i++) {
+                    let nr = tr + dr*i, nc = tc + dc*i;
+                    if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE) break;
+                    let p = b[nr][nc];
+                    if (p) { if (p.color === attCol && (p.type === 'b' || p.type === 'q')) return true; break; }
+                }
+            }
+            for(let [dr, dc] of knights) {
+                let nr = tr + dr, nc = tc + dc;
+                if (nr >= 0 && nr < SIZE && nc >= 0 && nc < SIZE) {
+                    let p = b[nr][nc];
+                    if (p && p.color === attCol && p.type === 'n') return true;
+                }
+            }
+            for(let [dr, dc] of [...orthos, ...diags]) {
+                let nr = tr + dr, nc = tc + dc;
+                if (nr >= 0 && nr < SIZE && nc >= 0 && nc < SIZE) {
+                    let p = b[nr][nc];
+                    if (p && p.color === attCol && p.type === 'k') return true;
+                }
+            }
+            
+            let pawnDir = attCol === 'w' ? -1 : 1; 
+            for(let dc of [-1, 1]) {
+                let nr = tr - pawnDir, nc = tc + dc;
+                if (nr >= 0 && nr < SIZE && nc >= 0 && nc < SIZE) {
+                    let p = b[nr][nc];
+                    if (p && p.color === attCol && p.type === 'p') return true;
+                }
+            }
+            
+            for(let [dr, dc] of diags) {
+                let nr = tr + dr, nc = tc + dc;
+                if (nr >= 0 && nr < SIZE && nc >= 0 && nc < SIZE) {
+                    let p = b[nr][nc];
+                    if (p && p.color === attCol && (p.type === 'c' || p.type === 'ck')) {
+                        let validDir = false;
+                        if (p.type === 'ck') validDir = true;
+                        else {
+                            if (attCol === 'w' && dr === 1) validDir = true; 
+                            if (attCol === 'b' && dr === -1) validDir = true; 
+                        }
+                        if (validDir) {
+                            let landingR = tr - dr, landingC = tc - dc;
+                            if (landingR >= 0 && landingR < SIZE && landingC >= 0 && landingC < SIZE) {
+                                if (!b[landingR][landingC]) return true;
+                            }
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        function isInCheck(st, col) {
+            let enemyCol = col === 'w' ? 'b' : 'w';
+            let kr = -1, kc = -1;
+            for(let r=0; r<SIZE; r++) {
+                for(let c=0; c<SIZE; c++) {
+                    let p = st.board[r][c];
+                    if (p && p.type === 'k' && p.color === col) { kr = r; kc = c; break; }
+                }
+                if (kr !== -1) break;
+            }
+            if (kr === -1) return true; 
+            return isAttacked(st, kr, kc, enemyCol);
+        }
+
+        function applyAction(st, act) {
+            let ns = cloneState(st);
+            let b = ns.board;
+            if (act.type === 'skip_extra_move') { ns.extraMove = null; return ns; }
+            
+            let p = b[act.fr][act.fc];
+            b[act.tr][act.tc] = p;
+            b[act.fr][act.fc] = null;
+            
+            if (act.type === 'jump') b[act.capR][act.capC] = null;
+
+            if (p.type === 'p') {
+                let lastRank = p.color === 'w' ? 0 : SIZE - 1;
+                if (act.tr === lastRank) p.type = 'q';
+            }
+            if (p.type === 'c') {
+                let lastRank = p.color === 'w' ? 0 : SIZE - 1;
+                if (act.tr === lastRank) {
+                    p.type = 'ck';
+                    ns.extraMove = null; 
+                    return ns;
+                }
+            }
+
+            if (act.type === 'jump') {
+                let furtherJumps = getCheckerJumps(ns, act.tr, act.tc);
+                if (furtherJumps.length > 0) ns.extraMove = { r: act.tr, c: act.tc };
+                else ns.extraMove = null;
+            } else {
+                ns.extraMove = null;
+            }
+            return ns;
+        }
+
+        function getAllActions(st, col) {
+            let acts = [];
+            if (st.extraMove) {
+                let r = st.extraMove.r, c = st.extraMove.c;
+                let moves = getCheckerJumps(st, r, c);
+                for(let m of moves) acts.push(m);
+                acts.push({ type: 'skip_extra_move' });
+                
+                return acts.filter(a => {
+                    if (a.type === 'skip_extra_move') return true;
+                    let ns = applyAction(st, a);
+                    return !isInCheck(ns, col);
+                });
+            }
+
+            for(let r=0; r<SIZE; r++) {
+                for(let c=0; c<SIZE; c++) {
+                    let p = st.board[r][c];
+                    if (p && p.color === col) {
+                        if (p.type === 'c' || p.type === 'ck') acts.push(...getCheckerMoves(st, r, c));
+                        else acts.push(...getChessMoves(st, r, c));
+                    }
+                }
+            }
+            
+            return acts.filter(a => {
+                if (a.type === 'skip_extra_move') return true;
+                let ns = applyAction(st, a);
+                return !isInCheck(ns, col);
+            });
+        }
+
+        function updateUI() {
+            let pt = playerTurns[turn];
+            document.getElementById('action-bar').innerText = `Turn ${pt}`;
+            
+            let score = evaluate(gameState);
+            let advText = score > 0 ? `White +${Math.floor(score/100)}` : (score < 0 ? `Black +${Math.floor(Math.abs(score)/100)}` : "Even");
+            document.getElementById('info').innerHTML = `Game Balance: ${advText}`;
+            
+            let cBtn = document.getElementById('cancel-btn');
+            cBtn.style.display = (gameState && gameState.extraMove) ? 'block' : 'none';
+            render();
+        }
+
+        function render() {
+            let bEl = document.getElementById('board'); bEl.innerHTML = '';
+            let flip = (playerColor === 'b' && gameMode !== 'spectate');
+            
+            for(let vr=0; vr<SIZE; vr++) {
+                for(let vc=0; vc<SIZE; vc++) {
+                    let r = flip ? SIZE-1-vr : vr, c = flip ? SIZE-1-vc : vc;
+                    let sq = document.createElement('div');
+                    sq.className = `square ${(r+c)%2===0 ? 'light' : 'dark'}`;
+                    sq.style.fontSize = SIZE >= 10 ? "28px" : "36px"; 
+
+                    let p = gameState.board[r][c];
+                    if (p) {
+                        let sp = document.createElement('span');
+                        sp.className = p.color === 'w' ? 'w-piece' : 'b-piece';
+                        sp.innerText = PIECES[p.type];
+                        sq.appendChild(sp);
+                    }
+
+                    if (selected && selected.r === r && selected.c === c) sq.classList.add('selected');
+                    if (gameState.extraMove && gameState.extraMove.r === r && gameState.extraMove.c === c) sq.classList.add('selected');
+
+                    if (gameState.extraMove) {
+                        let jumps = getCheckerJumps(gameState, gameState.extraMove.r, gameState.extraMove.c);
+                        if (jumps.some(m => m.tr === r && m.tc === c)) sq.classList.add('capture-hint');
+                    } else if (selected && gameState.board[selected.r][selected.c]) {
+                        let pType = gameState.board[selected.r][selected.c].type;
+                        let moves = (pType === 'c' || pType === 'ck') ? getCheckerMoves(gameState, selected.r, selected.c) : getChessMoves(gameState, selected.r, selected.c);
+                        
+                        let validMoves = moves.filter(a => !isInCheck(applyAction(gameState, a), turn));
+                        let match = validMoves.find(m => m.tr === r && m.tc === c);
+                        if (match) sq.classList.add(gameState.board[r][c] || match.type === 'jump' ? 'capture-hint' : 'hint');
+                    }
+
+                    sq.onclick = () => handleSquareClick(r, c); 
+                    bEl.appendChild(sq);
+                }
+            }
+        }
+
+        function handleSquareClick(r, c) {
+            if(gameOver || (gameMode!=='pvp' && turn!==playerColor && gameMode!=='spectate')) return;
+
+            if (gameState.extraMove) {
+                if (r === gameState.extraMove.r && c === gameState.extraMove.c) return;
+                let moves = getCheckerJumps(gameState, gameState.extraMove.r, gameState.extraMove.c);
+                let move = moves.find(m => m.tr === r && m.tc === c);
+                if (move) executeAction(move);
+                return; 
+            }
+
+            if (selected && gameState.board[selected.r][selected.c]) {
+                let pType = gameState.board[selected.r][selected.c].type;
+                let moves = (pType === 'c' || pType === 'ck') ? getCheckerMoves(gameState, selected.r, selected.c) : getChessMoves(gameState, selected.r, selected.c);
+                
+                let move = moves.filter(a => !isInCheck(applyAction(gameState, a), turn)).find(m => m.tr === r && m.tc === c);
+                if (move) { executeAction(move); return; }
+            }
+
+            let p = gameState.board[r][c];
+            if(p && p.color === turn) { selected = {r, c}; updateUI(); } 
+            else { selected = null; updateUI(); }
+        }
+
+        function executeAction(act) {
+            gameState = applyAction(gameState, act);
+            selected = null; 
+            
+            if (!gameState.extraMove) {
+                turn = turn === 'w' ? 'b' : 'w'; 
+                playerTurns[turn]++;
+            }
+            updateUI();
+            
+            let availableActs = getAllActions(gameState, turn);
+            let kingCaptured = true;
+            for(let r=0; r<SIZE; r++) {
+                for(let c=0; c<SIZE; c++) {
+                    let p = gameState.board[r][c];
+                    if (p && p.type === 'k' && p.color === turn) kingCaptured = false;
+                }
+            }
+
+            if(availableActs.length === 0 || kingCaptured) {
+                gameOver = true;
+                isAutoPlaying = false; 
+                document.getElementById('auto-btn').innerText = "▶ Start Auto-Play";
+                
+                if (kingCaptured || isInCheck(gameState, turn)) {
+                    document.getElementById('status').innerText = `Checkmate! ${turn === 'w' ? 'Black' : 'White'} Wins!`;
+                } else {
+                    document.getElementById('status').innerText = "Stalemate / Game Over!";
+                }
+            } else {
+                document.getElementById('status').innerText = turn==='w' ? "White's Turn" : "Black's Turn";
+                if(gameState.extraMove) document.getElementById('status').innerText += " (Multi-Jump!)";
+                
+                if(!gameOver && ((gameMode==='spectate'&&isAutoPlaying) || (gameMode!=='pvp'&&turn!==playerColor))) {
+                    clearTimeout(autoTimer); 
+                    autoTimer = setTimeout(() => runBot(turn), 400);
+                }
+            }
+        }
+
+        function evaluate(st) {
+            let score = 0;
+            let whiteMaterial = 0;
+            let blackMaterial = 0;
+            let wkR = -1, wkC = -1, bkR = -1, bkC = -1;
+
+            for(let r=0; r<SIZE; r++) {
+                for(let c=0; c<SIZE; c++) {
+                    let p = st.board[r][c];
+                    if (p) {
+                        let val = VALS[p.type] || 0;
+                        
+                        if (p.type === 'p' || p.type === 'c') {
+                            let stepsForward = p.color === 'w' ? (SIZE - 1 - r) : r;
+                            val += (stepsForward * stepsForward) * 5; 
+                        }
+                        
+                        if (p.type === 'n' || p.type === 'c' || p.type === 'ck') {
+                            let centerDist = Math.abs(r - SIZE/2) + Math.abs(c - SIZE/2);
+                            val += (SIZE - centerDist) * 10;
+                        }
+
+                        if (p.type === 'k') {
+                            if (p.color === 'w') { wkR = r; wkC = c; }
+                            else { bkR = r; bkC = c; }
+                        }
+
+                        if (p.color === 'w') { 
+                            whiteMaterial += val; 
+                            score += val; 
+                        } else { 
+                            blackMaterial += val; 
+                            score -= val; 
+                        }
+                    }
+                }
+            }
+
+            let totalMaterial = whiteMaterial + blackMaterial;
+            let remainingNonKingMaterial = totalMaterial - 180000;
+            let endgameWeight = Math.max(0, 1 - (remainingNonKingMaterial / 8000)); 
+
+            if (endgameWeight > 0.1 && wkR !== -1 && bkR !== -1) {
+                let evalBonus = 0;
+                let isWhiteWinning = score > 300; 
+                let isBlackWinning = score < -300;
+
+                if (isWhiteWinning) {
+                    let bkCenterDist = Math.abs(bkR - SIZE/2) + Math.abs(bkC - SIZE/2);
+                    evalBonus += bkCenterDist * 40;
+                    
+                    let kingDist = Math.abs(wkR - bkR) + Math.abs(wkC - bkC);
+                    evalBonus += (14 - kingDist) * 20; 
+                } 
+                else if (isBlackWinning) {
+                    let wkCenterDist = Math.abs(wkR - SIZE/2) + Math.abs(wkC - SIZE/2);
+                    evalBonus -= wkCenterDist * 40;
+                    
+                    let kingDist = Math.abs(wkR - bkR) + Math.abs(wkC - bkC);
+                    evalBonus -= (14 - kingDist) * 20;
+                }
+                
+                score += evalBonus * endgameWeight;
+            }
+
+            return score;
+        }
+
+        // ==========================================
+        // THE FIX: TERMINAL NODE STALEMATE DETECTION
+        // ==========================================
+        function alphaBeta(st, depth, alpha, beta, currentTurn) {
+            let acts = getAllActions(st, currentTurn);
+            
+            // If there are zero legal moves, we MUST check if the game is over 
+            // before we run evaluate(st). Otherwise the bot will purposefully stalemate!
+            if(acts.length === 0) {
+                let kr = -1, kc = -1;
+                for(let r=0; r<SIZE; r++) {
+                    for(let c=0; c<SIZE; c++) {
+                        let p = st.board[r][c];
+                        if (p && p.type === 'k' && p.color === currentTurn) { kr = r; kc = c; break; }
+                    }
+                }
+                
+                // If the King is captured OR currently under attack, it's Checkmate.
+                if (kr === -1 || isAttacked(st, kr, kc, currentTurn === 'w' ? 'b' : 'w')) {
+                    // Checkmate: The person whose turn it is loses instantly
+                    return currentTurn === 'w' ? -999999 : 999999;
+                } else {
+                    // Stalemate: The game is a draw! Return 0.
+                    // The winning bot will now actively avoid lines that lead here!
+                    return 0; 
+                }
+            }
+
+            if(depth === 0) return evaluate(st);
+
+            let isMax = currentTurn === 'w';
+            if(isMax) {
+                let maxEval = -Infinity;
+                for(let a of acts.slice(0, 15)) { 
+                    let ns = applyAction(st, a);
+                    let nextTurn = ns.extraMove ? currentTurn : 'b';
+                    let ev = alphaBeta(ns, depth-1, alpha, beta, nextTurn);
+                    maxEval = Math.max(maxEval, ev);
+                    alpha = Math.max(alpha, ev);
+                    if(beta <= alpha) break;
+                }
+                return maxEval;
+            } else {
+                let minEval = Infinity;
+                for(let a of acts.slice(0, 15)) {
+                    let ns = applyAction(st, a);
+                    let nextTurn = ns.extraMove ? currentTurn : 'w';
+                    let ev = alphaBeta(ns, depth-1, alpha, beta, nextTurn);
+                    minEval = Math.min(minEval, ev);
+                    beta = Math.min(beta, ev);
+                    if(beta <= alpha) break;
+                }
+                return minEval;
+            }
+        }
+
+        function runBot(col) {
+            if(gameOver) return;
+
+            let realActs = getAllActions(gameState, col);
+            if(realActs.length === 0) return; 
+
+            realActs.sort(() => Math.random() - 0.5);
+            let bestMove = realActs[0];
+
+            if(botDepth === 1) {
+                let bestV = col==='w' ? -Infinity : Infinity;
+                for(let a of realActs) {
+                    let ns = applyAction(gameState, a); let ev = evaluate(ns);
+                    if(col==='w' && ev>bestV) { bestV=ev; bestMove=a; }
+                    if(col==='b' && ev<bestV) { bestV=ev; bestMove=a; }
+                }
+            } else if (botDepth === 4) {
+                let bestV = col==='w' ? -Infinity : Infinity;
+                for(let a of realActs.slice(0, 20)) { 
+                    let ns = applyAction(gameState, a);
+                    let nextTurn = ns.extraMove ? col : (col==='w'?'b':'w');
+                    let ev = alphaBeta(ns, 3, -Infinity, Infinity, nextTurn); 
+                    if(col==='w' && ev>bestV) { bestV=ev; bestMove=a; }
+                    if(col==='b' && ev<bestV) { bestV=ev; bestMove=a; }
+                }
+            } else {
+                let bestV = col==='w' ? -Infinity : Infinity;
+                for(let a of realActs.slice(0, botDepth === 3 ? 15 : 30)) {
+                    let ns = applyAction(gameState, a);
+                    let nextTurn = ns.extraMove ? col : (col==='w'?'b':'w');
+                    let nextActs = getAllActions(ns, nextTurn).slice(0, 10);
+                    let nextBest = nextTurn === 'w' ? -Infinity : Infinity;
+                    
+                    for(let oa of nextActs) {
+                        let ns2 = applyAction(ns, oa); 
+                        let e2 = evaluate(ns2);
+                        if(nextTurn === 'w') { if(e2 > nextBest) nextBest = e2; } 
+                        else { if(e2 < nextBest) nextBest = e2; }
+                    }
+                    let ev = nextActs.length > 0 ? nextBest : evaluate(ns);
+                    if(col==='w' && ev>bestV) { bestV=ev; bestMove=a; }
+                    if(col==='b' && ev<bestV) { bestV=ev; bestMove=a; }
+                }
+            }
+            executeAction(bestMove);
+        }
+    </script>
+</body>
+</html>
