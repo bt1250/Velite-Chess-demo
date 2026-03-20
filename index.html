@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vanguard Chess - Smart AI Edition</title>
+    <title>Vanguard Chess - Full Rules Edition</title>
     <style>
         :root {
             --gold: #FFD700;
@@ -58,7 +58,7 @@
         #how-to-play h3 { color: #55ff55; margin-bottom: 5px; font-size: 16px; }
         #how-to-play ul { padding-left: 20px; font-size: 14px; line-height: 1.5; color: #ddd; margin-top: 0; }
         
-        #game-container { display: none; flex-direction: column; align-items: center; width: 100%; max-width: 650px; margin-top: 10px; }
+        #game-container { display: none; flex-direction: column; align-items: center; width: 100%; max-width: 650px; margin-top: 10px; position: relative; }
         #status { font-size: 22px; font-weight: bold; color: var(--gold); margin-bottom: 5px; text-align: center; }
         #info { font-size: 14px; color: #ccc; margin-bottom: 2px; text-align: center; font-family: monospace; background: #222; padding: 5px 15px; border-radius: 5px; border: 1px solid #444; width: 100%; box-sizing: border-box;}
 
@@ -86,6 +86,20 @@
         }
         .exchange-btn.active { background: var(--action); border-color: #fff; cursor: pointer; animation: pulse 1.5s infinite; }
         @keyframes pulse { 0% { box-shadow: 0 0 5px currentColor; } 50% { box-shadow: 0 0 15px currentColor; } 100% { box-shadow: 0 0 5px currentColor; } }
+
+        /* Manual Promotion Modal */
+        #promo-modal {
+            display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(30, 30, 30, 0.95); padding: 20px; border-radius: 10px;
+            border: 2px solid var(--gold); z-index: 100; text-align: center; box-shadow: 0 0 30px rgba(0,0,0,0.9);
+        }
+        #promo-modal h3 { margin-top: 0; color: var(--gold); }
+        .promo-options { display: flex; gap: 10px; justify-content: center; }
+        .promo-btn { 
+            font-size: 30px; width: 60px; height: 60px; cursor: pointer; 
+            background: #444; color: white; border: 1px solid #777; border-radius: 8px; transition: 0.2s;
+        }
+        .promo-btn:hover { background: var(--highlight); border-color: var(--gold); transform: scale(1.1); }
     </style>
 </head>
 <body>
@@ -112,8 +126,10 @@
             <h3>Chess Mechanics</h3>
             <ul>
                 <li>Chess pieces move and capture completely normally via displacement.</li>
-                <li>Pawns move 1 square forward, and capture 1 square diagonally forward. (No double-move on first turn).</li>
-                <li><strong>Victory:</strong> Capture the enemy Chess King to win! (Watch out: Multi-jumps make Kings uniquely vulnerable!)</li>
+                <li>Pawns can double-move on their first turn, and En Passant is fully active.</li>
+                <li>Castling (Kingside and Queenside) is fully active across all board sizes!</li>
+                <li><strong>Manual Promotion:</strong> Reaching the final rank with a Pawn will pop up a menu allowing you to under-promote to any major piece.</li>
+                <li><strong>Victory:</strong> Capture the enemy Chess King to win!</li>
             </ul>
             <button onclick="toggleHowToPlay()" style="background: var(--gold); color: black;">Close Rules</button>
         </div>
@@ -161,6 +177,16 @@
 
         <div id="board"></div>
 
+        <div id="promo-modal">
+            <h3>Promote Pawn</h3>
+            <div class="promo-options">
+                <button class="promo-btn" onclick="completePromotion('q')">♛</button>
+                <button class="promo-btn" onclick="completePromotion('r')">♜</button>
+                <button class="promo-btn" onclick="completePromotion('b')">♝</button>
+                <button class="promo-btn" onclick="completePromotion('n')">♞</button>
+            </div>
+        </div>
+
         <div id="action-panel">
             <button id="cancel-btn" class="exchange-btn active" onclick="executeAction({type: 'skip_extra_move'})" style="display:none; background:#d35400;">End Jump (Stop)</button>
         </div>
@@ -171,7 +197,7 @@
     <script>
         const PIECES = { 'n':'♞', 'b':'♝', 'q':'♛', 'k':'♚', 'p':'♟', 'r':'♜', 'c':'⬤', 'ck':'❂' };
         
-        // UPGRADED PIECE VALUES (Scaled x10 for more precise positional math)
+        // UPGRADED PIECE VALUES
         const VALS = { 'p':100, 'c':150, 'ck':350, 'n':300, 'b':320, 'r':500, 'q':900, 'k':90000 };
         
         let SIZE = 8;
@@ -180,6 +206,7 @@
         let playerTurns = { 'w': 1, 'b': 0 };
         let isAutoPlaying = false;
         let autoTimer = null;
+        let pendingPromoMove = null;
 
         function toggleHowToPlay() {
             let el = document.getElementById('how-to-play');
@@ -201,9 +228,10 @@
             SIZE = parseInt(modeStr);
 
             playerColor = mode === 'bot_b' ? 'b' : 'w';
-            turn = 'w'; gameOver = false; selected = null;
+            turn = 'w'; gameOver = false; selected = null; pendingPromoMove = null;
             isAutoPlaying = false; clearTimeout(autoTimer);
             playerTurns = { 'w': 1, 'b': 0 };
+            document.getElementById('promo-modal').style.display = 'none';
 
             let bEl = document.getElementById('board');
             bEl.style.gridTemplateColumns = `repeat(${SIZE}, ${SIZE >= 10 ? 45 : 60}px)`;
@@ -290,12 +318,24 @@
                     b[2][c+1] = { type: 'c', color: 'b' };
                 }
             }
-            return { board: b, extraMove: null };
+
+            // Inject the hasMoved state for pawns, kings, and rooks to allow standard chess rules
+            for(let r=0; r<SIZE; r++) {
+                for(let c=0; c<SIZE; c++) {
+                    if (b[r][c]) b[r][c].hasMoved = false;
+                }
+            }
+
+            return { board: b, extraMove: null, epTarget: null };
         }
 
         function cloneState(st) {
             let newBoard = st.board.map(row => row.map(p => p ? { ...p } : null));
-            return { board: newBoard, extraMove: st.extraMove ? { ...st.extraMove } : null };
+            return { 
+                board: newBoard, 
+                extraMove: st.extraMove ? { ...st.extraMove } : null,
+                epTarget: st.epTarget ? { ...st.epTarget } : null 
+            };
         }
 
         function getCheckerMoves(st, r, c) {
@@ -350,14 +390,26 @@
 
             if (p.type === 'p') {
                 let dir = p.color === 'w' ? -1 : 1;
+                
+                // Forward move
                 if (r + dir >= 0 && r + dir < SIZE && !b[r+dir][c]) {
                     moves.push({ type: 'move', fr: r, fc: c, tr: r+dir, tc: c });
+                    // Double pawn push (must be unblocked entirely)
+                    if (!p.hasMoved && r + dir*2 >= 0 && r + dir*2 < SIZE && !b[r+dir*2][c]) {
+                        moves.push({ type: 'double_pawn', fr: r, fc: c, tr: r+dir*2, tc: c, epR: r+dir, epC: c });
+                    }
                 }
+
+                // Captures & En Passant
                 for(let dc of [-1, 1]) {
                     let nr = r + dir, nc = c + dc;
                     if (nr >= 0 && nr < SIZE && nc >= 0 && nc < SIZE) {
                         let t = b[nr][nc];
-                        if (t && t.color !== p.color) moves.push({ type: 'move', fr: r, fc: c, tr: nr, tc: nc });
+                        if (t && t.color !== p.color) {
+                            moves.push({ type: 'move', fr: r, fc: c, tr: nr, tc: nc });
+                        } else if (st.epTarget && st.epTarget.r === nr && st.epTarget.c === nc) {
+                            moves.push({ type: 'en_passant', fr: r, fc: c, tr: nr, tc: nc, capR: r, capC: nc });
+                        }
                     }
                 }
             }
@@ -375,6 +427,48 @@
             }
             if (p.type === 'k') {
                 for(let [dr, dc] of [...orthos, ...diags]) addMove(r+dr, c+dc);
+
+                // Dynamic Castling Setup
+                if (!p.hasMoved && !isInCheck(st, p.color)) {
+                    
+                    // Kingside / Right Castling
+                    let rightRookCol = -1;
+                    for(let i=c+1; i<SIZE; i++) {
+                        let rp = b[r][i];
+                        if (rp) {
+                            if (rp.type === 'r' && rp.color === p.color && !rp.hasMoved) rightRookCol = i;
+                            break;
+                        }
+                    }
+                    if (rightRookCol !== -1) {
+                        let pathClear = true;
+                        for (let i=c+1; i<rightRookCol; i++) {
+                            if (b[r][i]) { pathClear = false; break; }
+                        }
+                        if (pathClear && !isAttacked(st, r, c+1, p.color==='w'?'b':'w') && !isAttacked(st, r, c+2, p.color==='w'?'b':'w')) {
+                            moves.push({ type: 'castle', fr: r, fc: c, tr: r, tc: c+2, rookF: rightRookCol, rookT: c+1 });
+                        }
+                    }
+
+                    // Queenside / Left Castling
+                    let leftRookCol = -1;
+                    for(let i=c-1; i>=0; i--) {
+                        let rp = b[r][i];
+                        if (rp) {
+                            if (rp.type === 'r' && rp.color === p.color && !rp.hasMoved) leftRookCol = i;
+                            break;
+                        }
+                    }
+                    if (leftRookCol !== -1) {
+                        let pathClear = true;
+                        for (let i=leftRookCol+1; i<c; i++) {
+                            if (b[r][i]) { pathClear = false; break; }
+                        }
+                        if (pathClear && !isAttacked(st, r, c-1, p.color==='w'?'b':'w') && !isAttacked(st, r, c-2, p.color==='w'?'b':'w')) {
+                            moves.push({ type: 'castle', fr: r, fc: c, tr: r, tc: c-2, rookF: leftRookCol, rookT: c-1 });
+                        }
+                    }
+                }
             }
             return moves;
         }
@@ -464,18 +558,30 @@
 
         function applyAction(st, act) {
             let ns = cloneState(st);
-            let b = ns.board;
+            ns.epTarget = null; // Clear En Passant target by default every turn
+            
             if (act.type === 'skip_extra_move') { ns.extraMove = null; return ns; }
             
-            let p = b[act.fr][act.fc];
-            b[act.tr][act.tc] = p;
-            b[act.fr][act.fc] = null;
+            let p = ns.board[act.fr][act.fc];
+            p.hasMoved = true;
+            ns.board[act.tr][act.tc] = p;
+            ns.board[act.fr][act.fc] = null;
             
-            if (act.type === 'jump') b[act.capR][act.capC] = null;
+            // Execute Special Move Interactions
+            if (act.type === 'jump') ns.board[act.capR][act.capC] = null;
+            if (act.type === 'en_passant') ns.board[act.capR][act.capC] = null;
+            if (act.type === 'double_pawn') ns.epTarget = { r: act.epR, c: act.epC };
+            if (act.type === 'castle') {
+                let rook = ns.board[act.fr][act.rookF];
+                rook.hasMoved = true;
+                ns.board[act.fr][act.rookT] = rook;
+                ns.board[act.fr][act.rookF] = null;
+            }
 
+            // Promotion logic
             if (p.type === 'p') {
                 let lastRank = p.color === 'w' ? 0 : SIZE - 1;
-                if (act.tr === lastRank) p.type = 'q';
+                if (act.tr === lastRank) p.type = act.promo || 'q'; // Use manual promo if passed, otherwise default to Queen
             }
             if (p.type === 'c') {
                 let lastRank = p.color === 'w' ? 0 : SIZE - 1;
@@ -572,7 +678,7 @@
                         
                         let validMoves = moves.filter(a => !isInCheck(applyAction(gameState, a), turn));
                         let match = validMoves.find(m => m.tr === r && m.tc === c);
-                        if (match) sq.classList.add(gameState.board[r][c] || match.type === 'jump' ? 'capture-hint' : 'hint');
+                        if (match) sq.classList.add(gameState.board[r][c] || match.type === 'jump' || match.type === 'en_passant' ? 'capture-hint' : 'hint');
                     }
 
                     sq.onclick = () => handleSquareClick(r, c); 
@@ -581,8 +687,21 @@
             }
         }
 
+        // --- Manual Promotion Logic ---
+        function showPromotionMenu(move) {
+            pendingPromoMove = move;
+            document.getElementById('promo-modal').style.display = 'block';
+        }
+
+        function completePromotion(promoType) {
+            pendingPromoMove.promo = promoType;
+            document.getElementById('promo-modal').style.display = 'none';
+            executeAction(pendingPromoMove);
+            pendingPromoMove = null;
+        }
+
         function handleSquareClick(r, c) {
-            if(gameOver || (gameMode!=='pvp' && turn!==playerColor && gameMode!=='spectate')) return;
+            if(gameOver || (gameMode!=='pvp' && turn!==playerColor && gameMode!=='spectate') || pendingPromoMove) return;
 
             if (gameState.extraMove) {
                 if (r === gameState.extraMove.r && c === gameState.extraMove.c) return;
@@ -597,7 +716,16 @@
                 let moves = (pType === 'c' || pType === 'ck') ? getCheckerMoves(gameState, selected.r, selected.c) : getChessMoves(gameState, selected.r, selected.c);
                 
                 let move = moves.filter(a => !isInCheck(applyAction(gameState, a), turn)).find(m => m.tr === r && m.tc === c);
-                if (move) { executeAction(move); return; }
+                
+                if (move) { 
+                    // Intercept Pawn Promotion for human player
+                    if (pType === 'p' && (move.tr === 0 || move.tr === SIZE - 1)) {
+                        showPromotionMenu(move);
+                        return;
+                    }
+                    executeAction(move); 
+                    return; 
+                }
             }
 
             let p = gameState.board[r][c];
@@ -713,14 +841,9 @@
             return score;
         }
 
-        // ==========================================
-        // THE FIX: TERMINAL NODE STALEMATE DETECTION
-        // ==========================================
         function alphaBeta(st, depth, alpha, beta, currentTurn) {
             let acts = getAllActions(st, currentTurn);
             
-            // If there are zero legal moves, we MUST check if the game is over 
-            // before we run evaluate(st). Otherwise the bot will purposefully stalemate!
             if(acts.length === 0) {
                 let kr = -1, kc = -1;
                 for(let r=0; r<SIZE; r++) {
@@ -729,14 +852,9 @@
                         if (p && p.type === 'k' && p.color === currentTurn) { kr = r; kc = c; break; }
                     }
                 }
-                
-                // If the King is captured OR currently under attack, it's Checkmate.
                 if (kr === -1 || isAttacked(st, kr, kc, currentTurn === 'w' ? 'b' : 'w')) {
-                    // Checkmate: The person whose turn it is loses instantly
                     return currentTurn === 'w' ? -999999 : 999999;
                 } else {
-                    // Stalemate: The game is a draw! Return 0.
-                    // The winning bot will now actively avoid lines that lead here!
                     return 0; 
                 }
             }
@@ -813,6 +931,7 @@
                     if(col==='b' && ev<bestV) { bestV=ev; bestMove=a; }
                 }
             }
+            // Execute chosen action (the bot inherently skips manual promotion modal)
             executeAction(bestMove);
         }
     </script>
